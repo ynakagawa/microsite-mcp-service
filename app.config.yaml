@@ -1,0 +1,45 @@
+# MCP Server Template - Adobe I/O Runtime Application Configuration
+# 
+# This configuration file defines how your MCP server will be deployed to Adobe I/O Runtime.
+# You can customize the settings below to match your specific requirements.
+
+application:
+  actions: actions
+  web: web-src
+  runtimeManifest:
+    packages:
+      # Package name - change this to match your project name
+      my-mcp-server:
+        license: MIT
+        actions:
+          # Main MCP server action
+          mcp-server:
+            function: actions/mcp-server/index.js
+            web: 'yes'
+            runtime: 'nodejs:18'
+            limits:
+              # Timeout in milliseconds (5 minutes for complex operations)
+              timeout: 300000
+              # Memory limit in MB (adjust based on your needs)
+              memory: 512
+            inputs:
+              # Set log level (debug, info, warn, error)
+              LOG_LEVEL: debug
+              # AEM Configuration
+              AEM_AUTHOR_URL: https://author-p18253-e46622.adobeaemcloud.com
+              # Prefer username/password for AEM Cloud Service QueryBuilder API (more reliable than Bearer tokens)
+              # Set AEM_USERNAME and AEM_PASSWORD as environment variables in Adobe I/O Runtime
+              # AEM_USERNAME: ${AEM_USERNAME}
+              # AEM_PASSWORD: ${AEM_PASSWORD}
+              # Bearer token (fallback, but may expire or not work with QueryBuilder API)
+              # Set AEM_TOKEN as environment variable in Adobe I/O Runtime
+              # AEM_TOKEN: ${AEM_TOKEN}
+            annotations:
+              # No Adobe authentication required for MCP servers
+              require-adobe-auth: false
+              # Final action (no further processing)
+              final: true
+              # Expose as web action
+              web-export: true
+              # Enable raw HTTP mode for MCP protocol
+              raw-http: true
