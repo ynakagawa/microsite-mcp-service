@@ -451,8 +451,106 @@ class AEMAssetClient extends AEMClientBase {
         }
     }
 
+    /**
+     * List all assets in a specific DAM folder
+     * @param {string} folderPath - DAM folder path (e.g., '/content/dam/Ford')
+     * @param {number} limit - Maximum number of results (default: 100)
+     * @param {number} offset - Result offset for pagination (default: 0)
+     * @returns {Promise<Object>} List of assets in the folder
+     */
+    async listAssetsInFolder(folderPath, limit = 100, offset = 0) {
+        try {
+            if (!folderPath) {
+                throw new Error('Folder path is required');
+            }
+
+            // Ensure folder path starts with /content/dam
+            if (!folderPath.startsWith('/content/dam')) {
+                throw new Error('Folder path must start with /content/dam');
+            }
+
+            // Build QueryBuilder query to find all assets in the folder
+            const params = new URLSearchParams();
+            
+            // Asset type predicate
+            params.append('type', 'dam:Asset');
+            
+            // Path predicate - search in this folder and subfolders
+            params.append('path', folderPath);
+            
+            // Pagination
+            params.append('p.limit', limit.toString());
+            params.append('p.offset', offset.toString());
+            
+            // Order by modification date (newest first)
+            params.append('orderby', '@jcr:content/jcr:lastModified');
+            params.append('orderby.sort', 'desc');
+            
+            // Execute QueryBuilder query
+            const queryBuilderUrl = `/bin/querybuilder.json?${params.toString()}`;
+            
+            let response;
+            try {
+                response = await this.axiosInstance.get(queryBuilderUrl);
+            } catch (error) {
+                if (error.response && error.response.status === 401) {
+                    const authMethod = this.credentials.token ? 'Bearer token' : 'username/password';
+                    throw new Error(`Authentication failed (401). Using ${authMethod}. Please check your credentials.`);
+                }
+                throw error;
+            }
+            
+            // Parse results
+            const results = [];
+            if (response.data && response.data.hits) {
+                for (const hit of response.data.hits) {
+                    const assetPath = hit.path;
+                    const assetName = assetPath.split('/').pop();
+                    
+                    // Get asset metadata
+                    let assetTitle = '';
+                    let assetMetadata = {};
+                    
+                    try {
+                        const metadataResponse = await this.axiosInstance.get(
+                            `${assetPath}/jcr:content/metadata.json`
+                        );
+                        assetMetadata = metadataResponse.data || {};
+                        assetTitle = assetMetadata['dc:title'] || assetName;
+                    } catch (metadataError) {
+                        // If metadata fetch fails, use asset name as title
+                        if (metadataError.response && metadataError.response.status === 401) {
+                            console.warn(`Warning: Could not fetch metadata for ${assetPath} due to authentication error`);
+                        }
+                        assetTitle = assetName;
+                    }
+
+                    results.push({
+                        path: assetPath,
+                        name: assetName,
+                        title: assetTitle,
+                        metadata: assetMetadata,
+                        url: `${this.authorUrl}${assetPath}`
+                    });
+                }
+            }
+
+            return {
+                success: true,
+                folderPath,
+                total: response.data?.total || 0,
+                results: results,
+                count: results.length,
+                limit,
+                offset,
+                message: `Found ${results.length} asset(s) in ${folderPath}`
+            };
+        } catch (error) {
+            throw new Error(`Failed to list assets in folder: ${error.message}`);
+        }
+    }
+
     // Future asset methods can be added here:
-    // - listAssets()
     // - getAssetInfo()
     // - deleteAsset()
     // - getAssetRenditions()

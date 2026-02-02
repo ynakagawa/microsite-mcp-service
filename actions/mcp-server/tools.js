@@ -1313,6 +1313,151 @@ function registerTools (server) {
         }
     )
 
+    // AEM: List Assets in Folder
+    server.tool(
+        'aem-list-assets',
+        'Find and list all assets in a specific DAM folder. Returns all assets found in the specified folder path.',
+        {
+            folder: z.string().describe('DAM folder path to search for assets (e.g., "/content/dam/Ford", "/content/dam/my-site/images")'),
+            limit: z.number().optional().describe('Maximum number of results to return (default: 100)'),
+            offset: z.number().optional().describe('Result offset for pagination (default: 0)'),
+            authorUrl: z.string().optional().describe('AEM Author URL'),
+            server: z.string().optional().describe('AEM Author URL (alias for authorUrl)'),
+            username: z.string().optional().describe('AEM username'),
+            password: z.string().optional().describe('AEM password'),
+            token: z.string().optional().describe('Bearer token for authentication')
+        },
+        async ({
+            folder,
+            limit,
+            offset,
+            authorUrl,
+            server,
+            username,
+            password,
+            token
+        }) => {
+            try {
+                if (!folder) {
+                    return {
+                        content: [{
+                            type: 'text',
+                            text: '❌ Folder Path Required\n\nPlease provide a folder path to search for assets.\n\nExample: "Find assets in /content/dam/Ford" or "List assets in /content/dam/my-site/images"'
+                        }]
+                    };
+                }
+
+                // Validate folder path format
+                if (!folder.startsWith('/content/dam')) {
+                    return {
+                        content: [{
+                            type: 'text',
+                            text: `❌ Invalid Folder Path\n\nFolder path must start with /content/dam\n\nProvided: ${folder}\n\nExample: "/content/dam/Ford" or "/content/dam/my-site/images"`
+                        }]
+                    };
+                }
+
+                // Get credentials from params or environment variables (support both authorUrl and server)
+                const authResult = getAEMCredentials({ authorUrl: authorUrl || server, username, password, token });
+                if (authResult.error) {
+                    return {
+                        content: [{
+                            type: 'text',
+                            text: `❌ Authentication Required\n\n${authResult.error}`
+                        }]
+                    };
+                }
+
+                const aemClient = createAEMAssetClient(authResult.authorUrl, authResult.credentials);
+                const result = await aemClient.listAssetsInFolder(folder, limit, offset);
+
+                let responseText = '📁 Assets in Folder\n\n';
+                responseText += `📂 Folder: ${result.folderPath}\n`;
+                responseText += `📊 Found: ${result.count} asset(s) (Total: ${result.total})\n\n`;
+
+                if (result.results.length === 0) {
+                    responseText += 'No assets found in this folder.\n\n';
+                    responseText += '💡 Tips:\n';
+                    responseText += '  • Verify the folder path is correct\n';
+                    responseText += '  • Check if the folder exists in AEM DAM\n';
+                    responseText += '  • Ensure you have permissions to access this folder\n';
+                } else {
+                    responseText += `📑 Assets:\n\n`;
+                    result.results.forEach((asset, index) => {
+                        responseText += `${index + 1}. **${asset.name}**\n`;
+                        responseText += `   📄 Title: ${asset.title}\n`;
+                        responseText += `   📂 Path: ${asset.path}\n`;
+                        responseText += `   🔗 URL: ${asset.url}\n`;
+                        
+                        // Show some metadata if available
+                        if (asset.metadata && Object.keys(asset.metadata).length > 0) {
+                            const metadataKeys = Object.keys(asset.metadata).slice(0, 3);
+                            if (metadataKeys.length > 0) {
+                                responseText += `   🏷️  Metadata: `;
+                                const metadataPairs = metadataKeys.map(key => {
+                                    const value = asset.metadata[key];
+                                    return `${key}: ${typeof value === 'string' && value.length > 30 ? value.substring(0, 27) + '...' : value}`;
+                                });
+                                responseText += metadataPairs.join(', ');
+                                responseText += '\n';
+                            }
+                        }
+                        responseText += '\n';
+                    });
+
+                    if (result.total > result.count) {
+                        responseText += `\n💡 Showing ${result.count} of ${result.total} results. Use limit and offset parameters for pagination.\n`;
+                    }
+                }
+
+                responseText += `\n✅ ${result.message}`;
+
+                return {
+                    content: [{
+                        type: 'text',
+                        text: responseText
+                    }],
+                    metadata: {
+                        success: true,
+                        folderPath: result.folderPath,
+                        total: result.total,
+                        count: result.count,
+                        results: result.results
+                    }
+                };
+            } catch (error) {
+                // Check if this is an authentication error
+                const isAuthError = error.message && error.message.includes('401');
+                const hasUsernamePassword = process.env.AEM_USERNAME && process.env.AEM_PASSWORD;
+                const isUsingToken = !!(token || process.env.AEM_TOKEN);
+                
+                let errorText = `❌ Failed to list assets in folder\n\nError: ${error.message}\n\n`;
+                
+                if (isAuthError && isUsingToken && hasUsernamePassword) {
+                    errorText += `💡 **Authentication Issue Detected**\n\n`;
+                    errorText += `You're using Bearer token authentication, but AEM Cloud Service may require username/password for QueryBuilder API.\n\n`;
+                    errorText += `**Try using username/password instead:**\n`;
+                    errorText += `- Pass username and password as tool parameters, OR\n`;
+                    errorText += `- Ensure AEM_USERNAME and AEM_PASSWORD are set in your environment\n\n`;
+                }
+                
+                errorText += `**Other possible causes:**\n`;
+                errorText += `- Invalid folder path\n`;
+                errorText += `- Folder does not exist\n`;
+                errorText += `- Invalid credentials\n`;
+                errorText += `- Insufficient permissions\n`;
+                errorText += `- Network connectivity issues\n`;
+                
+                return {
+                    content: [{
+                        type: 'text',
+                        text: errorText
+                    }]
+                };
+            }
+        }
+    )
+
 
 }
 
